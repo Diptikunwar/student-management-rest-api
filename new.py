@@ -7,15 +7,20 @@ from datetime import datetime, timedelta, timezone
 from functools import wraps
 from werkzeug.security import check_password_hash
 
+
 app = Flask(__name__)
+
 load_dotenv()
+
 JWT_SECRET = os.getenv("JWT_SECRET")
+
 db = mysql.connector.connect(
     host=os.getenv("MYSQL_HOST"),
     user=os.getenv("MYSQL_USER"),
     password=os.getenv("MYSQL_PASSWORD"),
     database=os.getenv("MYSQL_DATABASE")
 )
+
 
 @app.route('/login', methods=['POST'])
 def login():
@@ -37,14 +42,21 @@ def login():
     cursor = db.cursor(dictionary=True)
 
     cursor.execute(
-        "SELECT id, username, password_hash, role FROM users WHERE username = %s",
+        """
+        SELECT id, username, password_hash, role
+        FROM users
+        WHERE username = %s
+        """,
         (username,)
     )
 
     user = cursor.fetchone()
     cursor.close()
 
-    if not user or not check_password_hash(user['password_hash'], password):
+    if not user or not check_password_hash(
+        user['password_hash'],
+        password
+    ):
         return jsonify({
             'error': 'Invalid username or password'
         }), 401
@@ -66,6 +78,7 @@ def login():
         'message': 'Login successful',
         'token': token
     }), 200
+
 
 def token_required(f):
     @wraps(f)
@@ -108,6 +121,7 @@ def token_required(f):
 
     return decorated
 
+
 def admin_required(f):
     @wraps(f)
     def decorated(*args, **kwargs):
@@ -126,27 +140,38 @@ def admin_required(f):
 @token_required
 @admin_required
 def add_student():
+
     data = request.get_json()
 
     if not data:
-        return jsonify({'error': 'Request body is required'}), 400
+        return jsonify({
+            'error': 'Request body is required'
+        }), 400
 
     name = data.get('name')
     mark = data.get('mark')
 
     if not name:
-        return jsonify({'error': 'Name is required'}), 400
+        return jsonify({
+            'error': 'Name is required'
+        }), 400
 
     if mark is None:
-        return jsonify({'error': 'Mark is required'}), 400
+        return jsonify({
+            'error': 'Mark is required'
+        }), 400
 
     try:
         mark = float(mark)
     except (ValueError, TypeError):
-        return jsonify({'error': 'Mark must be a number'}), 400
+        return jsonify({
+            'error': 'Mark must be a number'
+        }), 400
 
     if mark < 0 or mark > 100:
-        return jsonify({'error': 'Mark must be between 0 and 100'}), 400
+        return jsonify({
+            'error': 'Mark must be between 0 and 100'
+        }), 400
 
     cursor = db.cursor()
 
@@ -168,6 +193,7 @@ def add_student():
 @token_required
 @admin_required
 def update_data():
+
     data = request.get_json()
 
     if not data:
@@ -175,11 +201,11 @@ def update_data():
             'error': 'Request body is required'
         }), 400
 
-    id = data.get('id')
+    student_id = data.get('id')
     name = data.get('name')
     mark = data.get('mark')
 
-    if id is None:
+    if student_id is None:
         return jsonify({
             'error': 'Student ID is required'
         }), 400
@@ -211,7 +237,7 @@ def update_data():
     # Check whether student exists
     cursor.execute(
         "SELECT id FROM students WHERE id = %s",
-        (id,)
+        (student_id,)
     )
 
     student = cursor.fetchone()
@@ -229,7 +255,11 @@ def update_data():
         WHERE id = %s
     """
 
-    cursor.execute(query, (name, mark, id))
+    cursor.execute(
+        query,
+        (name, mark, student_id)
+    )
+
     db.commit()
     cursor.close()
 
@@ -237,10 +267,12 @@ def update_data():
         'message': 'Student updated successfully'
     }), 200
 
+
 @app.route('/delete/<int:id>', methods=['DELETE'])
 @token_required
 @admin_required
 def delete_data(id):
+
     cursor = db.cursor()
 
     query = "DELETE FROM students WHERE id = %s"
@@ -260,19 +292,26 @@ def delete_data(id):
         'message': 'Student deleted successfully'
     }), 200
 
+
 @app.route('/fetchAll', methods=['GET'])
 @token_required
 def fetch_all():
+
     cursor = db.cursor(dictionary=True)
+
     cursor.execute("SELECT * FROM students")
+
     rows = cursor.fetchall()
+
     cursor.close()
-    return jsonify(rows)
+
+    return jsonify(rows), 200
 
 
 @app.route('/fetchById/<int:id>', methods=['GET'])
 @token_required
 def fetch_by_id(id):
+
     cursor = db.cursor(dictionary=True)
 
     cursor.execute(
@@ -281,6 +320,7 @@ def fetch_by_id(id):
     )
 
     student = cursor.fetchone()
+
     cursor.close()
 
     if not student:
@@ -290,9 +330,11 @@ def fetch_by_id(id):
 
     return jsonify(student), 200
 
+
 @app.route('/search', methods=['GET'])
 @token_required
 def search_students():
+
     name = request.args.get('name')
 
     if not name:
@@ -307,9 +349,13 @@ def search_students():
         WHERE name LIKE %s
     """
 
-    cursor.execute(query, (f"%{name}%",))
+    cursor.execute(
+        query,
+        (f"%{name}%",)
+    )
 
     students = cursor.fetchall()
+
     cursor.close()
 
     if not students:
@@ -324,6 +370,7 @@ def search_students():
 @token_required
 @admin_required
 def post_list():
+
     req_data = request.get_json()
 
     if not req_data:
@@ -336,16 +383,12 @@ def post_list():
             'error': 'Request body must be a list'
         }), 400
 
-    cursor = db.cursor()
+    students = []
 
-    query = """
-        INSERT INTO students (name, mark)
-        VALUES (%s, %s)
-    """
-
+    # Validate all students before inserting anything
     for student in req_data:
+
         if not isinstance(student, dict):
-            cursor.close()
             return jsonify({
                 'error': 'Each student must be an object'
             }), 400
@@ -354,13 +397,11 @@ def post_list():
         mark = student.get('mark')
 
         if not name:
-            cursor.close()
             return jsonify({
                 'error': 'Name is required'
             }), 400
 
         if mark is None:
-            cursor.close()
             return jsonify({
                 'error': 'Mark is required'
             }), 400
@@ -368,26 +409,47 @@ def post_list():
         try:
             mark = float(mark)
         except (ValueError, TypeError):
-            cursor.close()
             return jsonify({
                 'error': 'Mark must be a number'
             }), 400
 
         if mark < 0 or mark > 100:
-            cursor.close()
             return jsonify({
                 'error': 'Mark must be between 0 and 100'
             }), 400
 
-        cursor.execute(query, (name, mark))
+        students.append((name, mark))
 
-    db.commit()
-    cursor.close()
+    cursor = db.cursor()
+
+    query = """
+        INSERT INTO students (name, mark)
+        VALUES (%s, %s)
+    """
+
+    try:
+        cursor.executemany(
+            query,
+            students
+        )
+
+        db.commit()
+
+    except mysql.connector.Error:
+        db.rollback()
+
+        return jsonify({
+            'error': 'Failed to add students'
+        }), 500
+
+    finally:
+        cursor.close()
 
     return jsonify({
         'message': 'Students added successfully'
     }), 201
 
+
 if __name__ == '__main__':
     print("connecting to database....")
-    app.run() 
+    app.run()
